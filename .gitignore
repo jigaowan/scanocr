@@ -1,0 +1,12 @@
+.DS_Store
+/docs/
+/example/
+.build/
+.release/
+.release-venv/
+.pyinstaller/
+dist/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/

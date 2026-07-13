@@ -1,0 +1,20 @@
+[server]
+host = "127.0.0.1"
+port = 8732
+open_browser = true
+max_upload_bytes = 536870912
+
+[auth]
+token = "replace-with-a-random-token"
+# For declarative/secret-managed deployments, use this instead of token:
+# token_file = "/run/secrets/scanocr-token"
+
+[defaults]
+ocr_engine = "vision"
+translation_engine = "apple-translation"
+source_language = "auto"
+target_language = "zh-Hans"
+
+[paths]
+# data_dir = "~/Library/Application Support/ScanOCR"
+# helper = "./.build/scanocr-native-helper"

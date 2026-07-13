@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scanocr-server"
+version = "0.1"
+description = "Personal macOS screenshot OCR and translation server"
+requires-python = ">=3.9"
+dependencies = ["Pillow>=10.0"]
+
+[project.scripts]
+scanocr-server = "scanocr_server.cli:main"
+
+[tool.setuptools]
+packages = ["scanocr_server"]
+
+[tool.setuptools.package-data]
+scanocr_server = ["web/*"]
