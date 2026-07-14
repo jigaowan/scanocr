@@ -10,13 +10,12 @@ Requires Apple Silicon and macOS 26 or newer. The helper uses Translation Framew
 scripts/build.sh
 mkdir -p ~/.config/scanocr
 cp config.example.toml ~/.config/scanocr/server.toml
-chmod 600 ~/.config/scanocr/server.toml
 # Edit auth.token and defaults.target_language.
 .venv/bin/scanocr-server --config ~/.config/scanocr/server.toml doctor
 .venv/bin/scanocr-server --config ~/.config/scanocr/server.toml serve
 ```
 
-The default data directory is `~/Library/Application Support/ScanOCR`. The service refuses to start when the token is missing or the config is readable by group/other users.
+The default data directory is `~/Library/Application Support/ScanOCR`. The service accepts normal config-file permissions. When `auth.token_file` is used, that separate secret file must remain mode `0600`.
 
 ## Capture request
 

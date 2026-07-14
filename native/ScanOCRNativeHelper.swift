@@ -30,13 +30,13 @@ private func respond(_ value: [String: Any]) {
 }
 
 private func capabilities() throws -> [String: Any] {
-    var request = RecognizeTextRequest(.revision3)
-    request.recognitionLevel = .accurate
+    let request = RecognizeDocumentsRequest(.revision1)
     let visionLanguages = request.supportedRecognitionLanguages.map(languageIdentifier)
     return [
         "ok": true,
         "vision_languages": visionLanguages.sorted(),
-        "vision_revision": 3,
+        "vision_revision": 1,
+        "vision_request": "RecognizeDocumentsRequest",
         "translation_languages": "dynamic",
         "translation_pairs": "queried per request"
     ]
@@ -46,41 +46,51 @@ private func recognize(_ command: Command) async throws -> [String: Any] {
     guard let path = command.image_path, FileManager.default.fileExists(atPath: path) else {
         throw HelperFailure.coded("invalid_input", "image_path does not exist")
     }
-    var request = RecognizeTextRequest(.revision3)
-    request.recognitionLevel = .accurate
-    request.usesLanguageCorrection = true
+    var request = RecognizeDocumentsRequest(.revision1)
+    var textOptions = request.textRecognitionOptions
+    textOptions.useLanguageCorrection = true
+    textOptions.maximumCandidateCount = 1
     let requestedLanguage = command.source_language ?? "auto"
     if requestedLanguage == "auto" {
-        request.automaticallyDetectsLanguage = true
+        textOptions.automaticallyDetectLanguage = true
     } else {
-        request.recognitionLanguages = [Locale.Language(identifier: requestedLanguage)]
+        textOptions.recognitionLanguages = [Locale.Language(identifier: requestedLanguage)]
     }
-    let observations: [RecognizedTextObservation]
+    request.textRecognitionOptions = textOptions
+    var barcodeOptions = request.barcodeDetectionOptions
+    barcodeOptions.enabled = false
+    request.barcodeDetectionOptions = barcodeOptions
+    let observations: [DocumentObservation]
     do {
         observations = try await request.perform(on: URL(fileURLWithPath: path))
     } catch {
         throw HelperFailure.coded("execution_failed", "Vision request failed: \(error.localizedDescription)")
     }
-    var lines: [String] = []
+    var transcripts: [String] = []
     var regions: [[String: Any]] = []
     var confidences: [Float] = []
-    for observation in observations {
-        guard let candidate = observation.topCandidates(1).first else { continue }
-        lines.append(candidate.string)
-        confidences.append(candidate.confidence)
-        let points = [observation.topLeft, observation.topRight, observation.bottomRight, observation.bottomLeft]
-        let minX = points.map(\.x).min() ?? 0
-        let maxX = points.map(\.x).max() ?? 0
-        let minY = points.map(\.y).min() ?? 0
-        let maxY = points.map(\.y).max() ?? 0
-        regions.append([
-            "text": candidate.string,
-            "confidence": candidate.confidence,
-            "x": minX,
-            "y": minY,
-            "width": maxX - minX,
-            "height": maxY - minY
-        ])
+    for documentObservation in observations {
+        let document = documentObservation.document
+        if !document.text.transcript.isEmpty {
+            transcripts.append(document.text.transcript)
+        }
+        for line in document.text.lines {
+            guard let candidate = line.topCandidates(1).first else { continue }
+            confidences.append(candidate.confidence)
+            let points = [line.topLeft, line.topRight, line.bottomRight, line.bottomLeft]
+            let minX = points.map(\.x).min() ?? 0
+            let maxX = points.map(\.x).max() ?? 0
+            let minY = points.map(\.y).min() ?? 0
+            let maxY = points.map(\.y).max() ?? 0
+            regions.append([
+                "text": candidate.string,
+                "confidence": candidate.confidence,
+                "x": minX,
+                "y": minY,
+                "width": maxX - minX,
+                "height": maxY - minY
+            ])
+        }
     }
     let confidence: Any
     if confidences.isEmpty {
@@ -90,12 +100,12 @@ private func recognize(_ command: Command) async throws -> [String: Any] {
     }
     return [
         "ok": true,
-        "text": lines.joined(separator: "\n"),
+        "text": transcripts.joined(separator: "\n\n"),
         "detected_language": NSNull(),
         "confidence": confidence,
         "regions": regions,
-        "model_name": "VNRecognizeTextRequest",
-        "model_version": "revision-3"
+        "model_name": "RecognizeDocumentsRequest",
+        "model_version": "revision-1"
     ]
 }
 

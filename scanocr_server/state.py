@@ -194,7 +194,7 @@ class ServerState:
         ]
         descriptor, temporary_name = tempfile.mkstemp(prefix=".server-", suffix=".toml", dir=str(self.config.path.parent))
         try:
-            os.fchmod(descriptor, 0o600)
+            os.fchmod(descriptor, 0o644)
             with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
                 stream.write("\n".join(lines))
                 stream.flush()
@@ -289,6 +289,7 @@ class ServerState:
         )
         for row in rows:
             row["resolved_settings"] = self.resolve_settings(row)
+            row["storage_bytes"] = self._application_storage_bytes(row["id"])
             latest = self.db.one("SELECT status FROM captures WHERE application_id=? ORDER BY captured_at DESC LIMIT 1", (row["id"],))
             row["latest_status"] = latest["status"] if latest else None
         return rows
@@ -297,6 +298,9 @@ class ServerState:
         row = self.db.one("SELECT * FROM applications WHERE id=?", (application_id,))
         if row:
             row["resolved_settings"] = self.resolve_settings(row)
+            count = self.db.one("SELECT COUNT(*) AS count FROM captures WHERE application_id=?", (application_id,))
+            row["capture_count"] = count["count"] if count else 0
+            row["storage_bytes"] = self._application_storage_bytes(application_id)
         return row
 
     def application_captures(self, application_id: str, cursor: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
@@ -318,6 +322,7 @@ class ServerState:
 
     def _capture_detail(self, row: Dict[str, Any]) -> Dict[str, Any]:
         result = dict(row)
+        result["storage_bytes"] = self._capture_storage_bytes(row)
         result["ocr"] = decode_json_columns(self.db.one("SELECT * FROM ocr_runs WHERE id=?", (row["current_ocr_run_id"],)))
         result["translation"] = decode_json_columns(self.db.one(
             "SELECT * FROM translation_runs WHERE id=?", (row["current_translation_run_id"],)
@@ -329,6 +334,49 @@ class ServerState:
             "SELECT * FROM translation_runs WHERE capture_id=? ORDER BY generation DESC LIMIT 1", (row["id"],)
         ))
         return result
+
+    @staticmethod
+    def _capture_storage_bytes(capture: Dict[str, Any]) -> int:
+        total = 0
+        for value in (capture.get("image_path"), capture.get("thumbnail_path")):
+            if value:
+                try:
+                    total += Path(value).stat().st_size
+                except OSError:
+                    pass
+        return total
+
+    def _application_storage_bytes(self, application_id: str) -> int:
+        captures = self.db.all(
+            "SELECT image_path, thumbnail_path FROM captures WHERE application_id=?",
+            (application_id,),
+        )
+        return sum(self._capture_storage_bytes(capture) for capture in captures)
+
+    def storage_usage(self) -> Dict[str, Any]:
+        total_bytes = 0
+        database_bytes = 0
+        database_names = {"scanocr.sqlite3", "scanocr.sqlite3-wal", "scanocr.sqlite3-shm"}
+        for path in self.config.data_dir.rglob("*"):
+            try:
+                if path.is_file():
+                    size = path.stat().st_size
+                    total_bytes += size
+                    if path.name in database_names:
+                        database_bytes += size
+            except OSError:
+                continue
+        captures = self.db.all("SELECT image_path, thumbnail_path FROM captures")
+        capture_bytes = sum(self._capture_storage_bytes(capture) for capture in captures)
+        application_count = self.db.one("SELECT COUNT(*) AS count FROM applications")
+        return {
+            "total_bytes": total_bytes,
+            "capture_files_bytes": capture_bytes,
+            "database_bytes": database_bytes,
+            "other_bytes": max(0, total_bytes - capture_bytes - database_bytes),
+            "application_count": application_count["count"] if application_count else 0,
+            "capture_count": len(captures),
+        }
 
     def update_application(self, application_id: str, changes: Dict[str, Any]) -> Dict[str, Any]:
         allowed = {
@@ -467,13 +515,57 @@ class ServerState:
             raise NotFound("capture not found")
         with self.db.transaction() as connection:
             connection.execute("DELETE FROM captures WHERE id=?", (capture_id,))
-        for path in (capture.get("image_path"), capture.get("thumbnail_path")):
-            if path:
+        self._remove_capture_files([capture])
+        self.events.publish("capture_deleted", application_id=capture["application_id"], capture_id=capture_id)
+
+    @staticmethod
+    def _remove_capture_files(captures: List[Dict[str, Any]]) -> None:
+        for capture in captures:
+            for path in (capture.get("image_path"), capture.get("thumbnail_path")):
+                if not path:
+                    continue
                 try:
                     Path(path).unlink(missing_ok=True)
                 except OSError:
-                    LOG.exception("failed to remove capture file for %s", capture_id)
-        self.events.publish("capture_deleted", application_id=capture["application_id"], capture_id=capture_id)
+                    LOG.exception("failed to remove capture file for %s", capture.get("id", "unknown"))
+
+    def delete_application(self, application_id: str) -> None:
+        application = self.db.one("SELECT id FROM applications WHERE id=?", (application_id,))
+        if not application:
+            raise NotFound("application not found")
+        captures = self.db.all(
+            "SELECT id, image_path, thumbnail_path FROM captures WHERE application_id=?",
+            (application_id,),
+        )
+        with self.db.transaction() as connection:
+            connection.execute("DELETE FROM applications WHERE id=?", (application_id,))
+        self._remove_capture_files(captures)
+        for name in ("images", "thumbnails"):
+            try:
+                shutil.rmtree(self.config.data_dir / name / application_id, ignore_errors=True)
+            except OSError:
+                LOG.exception("failed to remove application directory for %s", application_id)
+        self.events.publish("application_deleted", application_id=application_id)
+
+    def clear_data(self) -> Dict[str, Any]:
+        previous = self.storage_usage()
+        with self.db.transaction() as connection:
+            connection.execute("DELETE FROM applications")
+        for name in ("images", "thumbnails", "logs", "tmp"):
+            directory = self.config.data_dir / name
+            try:
+                shutil.rmtree(directory, ignore_errors=True)
+                directory.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                LOG.exception("failed to clear data directory %s", directory)
+        try:
+            self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self.db.execute("VACUUM")
+            self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            LOG.exception("failed to compact database after clearing data")
+        self.events.publish("data_cleared")
+        return {"cleared": previous, "storage": self.storage_usage()}
 
     def _thumbnail_worker(self) -> None:
         while not self.stop_event.is_set():

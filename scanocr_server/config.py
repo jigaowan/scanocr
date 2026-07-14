@@ -124,10 +124,6 @@ class Config:
         )
 
     def validate_permissions(self) -> None:
-        if self.token_inline:
-            mode = stat.S_IMODE(self.path.stat().st_mode)
-            if mode & 0o077:
-                raise ConfigError("config contains a token and must be mode 0600 (currently %04o)" % mode)
         if self.token_file:
             mode = stat.S_IMODE(self.token_file.stat().st_mode)
             if mode & 0o077:

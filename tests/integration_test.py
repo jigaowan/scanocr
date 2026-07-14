@@ -41,7 +41,7 @@ def make_test_images(directory: Path):
     horizontal_draw = ImageDraw.Draw(horizontal_image)
     horizontal_draw.multiline_text(
         (70, 55),
-        "もう心配する必要はありません\nカリンの姿を捉えています",
+        "もう心配する必要はありません。カリンの姿を\n捉えています",
         font=ImageFont.truetype(font_path, 64),
         fill="black",
         spacing=28,
@@ -215,7 +215,10 @@ def main() -> int:
             '[paths]\ndata_dir = "%s"\nhelper = "%s"\n'
             % (port, TOKEN, temp / "data", HELPER)
         )
-        config.chmod(0o600)
+        config.chmod(0o644)
+        regular = Config.load(config)
+        regular.validate_permissions()
+        assert regular.token_inline
         first_image, second_image = make_test_images(temp)
         base = "http://127.0.0.1:%d" % port
         doctor = subprocess.run(
@@ -239,6 +242,11 @@ def main() -> int:
             assert request(base, "/api/v1/applications", token=None)[0] == 401
             assert request(base, "/api/v1/applications", token="wrong-token")[0] == 401
             assert request(base, "/api/v1/applications", token="correct-token-2026x")[0] == 401
+            settings_status, saved_settings, _ = request(
+                base, "/api/v1/settings", method="PUT", body={"open_browser": False}
+            )
+            assert settings_status == 200 and saved_settings["restart_required"] is True
+            assert config.stat().st_mode & 0o777 == 0o644
             assert oversized_preflight(port) == 413
 
             bad_image = temp / "not-a-png.png"
@@ -278,7 +286,9 @@ def main() -> int:
             assert (same["image_width"], same["image_height"]) == (800, 1200)
             for item in (first, same, distinct, empty):
                 assert item["thumbnail_status"] == "ready", item
+                assert item["storage_bytes"] > 0, item
                 assert item["latest_ocr_run"]["status"] == "succeeded", item
+                assert item["latest_ocr_run"]["model_name"] == "RecognizeDocumentsRequest", item
                 assert item["ocr"]["text"].strip(), item
                 translation_run = item["latest_translation_run"]
                 if ALLOW_MISSING_TRANSLATION and translation_run["status"] == "failed":
@@ -286,17 +296,25 @@ def main() -> int:
                 else:
                     assert translation_run["status"] == "succeeded", item
                     assert item["translation"]["text"].strip(), item
-            assert "カリン" in first["ocr"]["text"], first["ocr"]["text"]
+            assert "カリンの姿を捉えています" in first["ocr"]["text"], first["ocr"]["text"]
+            assert "姿を\n捉え" not in first["ocr"]["text"], first["ocr"]["text"]
+
+            application_id = first_upload[1]["application_id"]
+            app_status, app_detail, _ = request(base, "/api/v1/applications/" + application_id)
+            assert app_status == 200
+            assert app_detail["capture_count"] == 2
+            assert app_detail["storage_bytes"] == first["storage_bytes"] + same["storage_bytes"]
 
             thumb_status, thumb, thumb_headers = request(base, "/api/v1/captures/%s/thumbnail" % first_id)
             assert thumb_status == 200 and thumb[:4] == b"RIFF" and thumb[8:12] == b"WEBP"
             assert "immutable" in thumb_headers["Cache-Control"]
 
-            application_id = first_upload[1]["application_id"]
             status, updated, _ = request(base, "/api/v1/applications/%s/settings" % application_id, method="PUT", body={"display_name": "Renamed Game"})
             assert status == 200 and updated["source_title"] == "Example Game" and updated["display_name"] == "Renamed Game"
             third_id, third_upload = upload(base, first_image, "Example Game", "client-c")
             assert third_upload[1]["application_id"] == application_id
+            third = wait_capture(base, third_id)
+            assert third["storage_bytes"] > 0
 
             apps_status, apps, _ = request(base, "/api/v1/applications")
             assert apps_status == 200
@@ -306,16 +324,38 @@ def main() -> int:
             assert set(by_title) == {"Example Game", "Example Game: Chapter 2", "Chunked Upload", ""}
             assert by_title["Example Game"]["capture_count"] == 3
             assert by_title["Example Game"]["display_name"] == "Renamed Game"
+            assert by_title["Example Game"]["storage_bytes"] == first["storage_bytes"] + same["storage_bytes"] + third["storage_bytes"]
 
-            delete_status, _, _ = request(base, "/api/v1/captures/" + distinct_id, method="DELETE")
+            storage_status, storage, _ = request(base, "/api/v1/storage")
+            assert storage_status == 200
+            assert storage["application_count"] == 4 and storage["capture_count"] == 6
+            assert storage["total_bytes"] >= storage["capture_files_bytes"] > 0
+
+            delete_status, _, _ = request(base, "/api/v1/captures/" + empty_id, method="DELETE")
             assert delete_status == 204
+            assert request(base, "/api/v1/captures/" + empty_id)[0] == 404
+
+            distinct_application_id = distinct_upload[1]["application_id"]
+            delete_app_status, _, _ = request(base, "/api/v1/applications/" + distinct_application_id, method="DELETE")
+            assert delete_app_status == 204
+            assert request(base, "/api/v1/applications/" + distinct_application_id)[0] == 404
             assert request(base, "/api/v1/captures/" + distinct_id)[0] == 404
+
+            clear_status, cleared, _ = request(base, "/api/v1/storage", method="DELETE")
+            assert clear_status == 200
+            assert cleared["storage"]["application_count"] == 0
+            assert cleared["storage"]["capture_count"] == 0
+            assert cleared["storage"]["capture_files_bytes"] == 0
+            assert request(base, "/api/v1/applications")[1]["applications"] == []
+            assert request(base, "/api/v1/captures/" + first_id)[0] == 404
 
             summary = {
                 "applications": {key if key else "<empty>": value["capture_count"] for key, value in by_title.items()},
                 "titles_grouped": first_upload[1]["application_id"] == same_upload[1]["application_id"],
                 "wrong_token_rejected": wrong[0] == 401,
                 "idempotent_replay": replay[1]["idempotent_replay"],
+                "application_storage_bytes": by_title["Example Game"]["storage_bytes"],
+                "data_cleared": cleared["storage"]["capture_count"] == 0,
                 "ocr_horizontal": first["ocr"]["text"],
                 "ocr_vertical_preview": same["ocr"]["text"][:180],
                 "translation_horizontal": first["latest_translation_run"]["status"] if first["latest_translation_run"] else "not-created",

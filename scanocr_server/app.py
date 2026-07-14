@@ -81,7 +81,7 @@ def validate_metadata(value: Any) -> Dict[str, Any]:
 
 class ScanOCRHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "ScanOCR/0.1"
+    server_version = "ScanOCR/0.2"
     state: ServerState
 
     def log_message(self, message: str, *args: Any) -> None:
@@ -167,6 +167,10 @@ class ScanOCRHandler(BaseHTTPRequestHandler):
                 raise NotFound("application not found")
             self._json(200, application)
             return
+        if method == "DELETE" and match:
+            self.state.delete_application(match.group(1))
+            self._empty(204)
+            return
         match = re.fullmatch(r"/api/v1/applications/([^/]+)/captures", path)
         if method == "GET" and match:
             query = urllib.parse.parse_qs(parsed.query)
@@ -185,6 +189,12 @@ class ScanOCRHandler(BaseHTTPRequestHandler):
             return
         if method == "PUT" and path == "/api/v1/settings":
             self._json(200, self.state.update_settings(self._read_json()))
+            return
+        if method == "GET" and path == "/api/v1/storage":
+            self._json(200, self.state.storage_usage())
+            return
+        if method == "DELETE" and path == "/api/v1/storage":
+            self._json(200, self.state.clear_data())
             return
         if method == "GET" and path == "/api/v1/events":
             self._events()
