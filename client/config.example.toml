@@ -1,0 +1,4 @@
+server_url = "http://127.0.0.1:8732"
+token = "replace-with-client-token"
+client_name = "gaming-pc"
+notify = true
