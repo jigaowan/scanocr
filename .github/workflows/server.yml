@@ -57,6 +57,7 @@ jobs:
           mkdir -p server/.release/test
           tar -xzf "$archive" -C server/.release/test
           bundle=$(find server/.release/test -name 'scanocr-server-*-aarch64-darwin' -type d -print -quit)
+          bundle=$(cd "$bundle" && pwd)
           SCANOCR_TEST_SERVER="$bundle/bin/scanocr-server" \
           SCANOCR_TEST_HELPER="$bundle/libexec/scanocr-native-helper" \
           SCANOCR_TEST_ALLOW_MISSING_TRANSLATION=1 \
