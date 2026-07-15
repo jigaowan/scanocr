@@ -2,14 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-VERSION=${SCANOCR_VERSION:-}
-if [ -z "$VERSION" ]; then
-  VERSION=$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || true)
-fi
-if [ -z "$VERSION" ]; then
-  VERSION=$(awk -F '"' '/^version = / { print $2; exit }' "$ROOT/pyproject.toml")
-fi
-VERSION=${VERSION#v}
+VERSION=${SCANOCR_VERSION:-$("$ROOT/scripts/version.sh")}
 NAME="scanocr-server-$VERSION-aarch64-darwin"
 WORK="$ROOT/.release"
 STAGE="$WORK/stage/$NAME"
@@ -20,7 +13,7 @@ test "$(uname -m)" = "arm64" || {
   exit 1
 }
 
-"$ROOT/scripts/build.sh"
+SCANOCR_VERSION="$VERSION" "$ROOT/scripts/build.sh"
 "$ROOT/.venv/bin/python" -m pip install --disable-pip-version-check -r "$ROOT/requirements-build.txt"
 
 rm -rf "$WORK" "$DIST"
@@ -33,6 +26,7 @@ mkdir -p "$WORK/pyinstaller" "$STAGE/bin" "$STAGE/libexec" "$DIST"
   --noupx \
   --target-architecture arm64 \
   --name scanocr-server \
+  --copy-metadata scanocr-server \
   --distpath "$WORK/pyinstaller/dist" \
   --workpath "$WORK/pyinstaller/work" \
   --specpath "$WORK/pyinstaller" \
@@ -47,6 +41,7 @@ install -m755 "$ROOT/.build/scanocr-native-helper" "$STAGE/libexec/scanocr-nativ
 
 file "$STAGE/bin/scanocr-server" "$STAGE/libexec/scanocr-native-helper" | grep -q 'arm64'
 "$STAGE/bin/scanocr-server" --help >/dev/null
+test "$("$STAGE/bin/scanocr-server" --version)" = "$VERSION"
 printf '{"operation":"capabilities"}' | "$STAGE/libexec/scanocr-native-helper" >/dev/null
 
 tar -czf "$DIST/$NAME.tar.gz" -C "$WORK/stage" "$NAME"

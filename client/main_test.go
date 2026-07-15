@@ -85,6 +85,12 @@ func prepareCaptureEnvironment(t *testing.T) (string, Config) {
 	return root, Config{Token: "test-token", ClientName: "test-client", Notify: false}
 }
 
+func TestClientVersion(t *testing.T) {
+	if clientVersion == "" {
+		t.Fatal("client version is empty")
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.toml")
 	content := "server_url = \"http://127.0.0.1:8732\"\ntoken = \"secret\"\nclient_name = \"gaming-pc\"\n"

@@ -1,0 +1,97 @@
+name: Server
+
+on:
+  push:
+    branches: [master]
+    tags: ["server/v*"]
+    paths:
+      - "server/**"
+      - ".github/workflows/server.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: server/requirements-build.txt
+
+      - name: Select build version
+        run: |
+          version=$(server/scripts/version.sh)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag_version=${GITHUB_REF_NAME#server/v}
+            if [ "$tag_version" != "$version" ]; then
+              echo "tag version $tag_version does not match server version $version" >&2
+              exit 1
+            fi
+          fi
+          echo "SCANOCR_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build binary bundle
+        run: server/scripts/build-binary.sh
+
+      - name: Test packaged binaries
+        run: |
+          archive=$(find server/dist -name 'scanocr-server-*-aarch64-darwin.tar.gz' -type f -print -quit)
+          mkdir -p server/.release/test
+          tar -xzf "$archive" -C server/.release/test
+          bundle=$(find server/.release/test -name 'scanocr-server-*-aarch64-darwin' -type d -print -quit)
+          SCANOCR_TEST_SERVER="$bundle/bin/scanocr-server" \
+          SCANOCR_TEST_HELPER="$bundle/libexec/scanocr-native-helper" \
+          SCANOCR_TEST_ALLOW_MISSING_TRANSLATION=1 \
+            server/scripts/test.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: scanocr-server-aarch64-darwin
+          path: |
+            server/dist/*.tar.gz
+            server/dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/server/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: scanocr-server-aarch64-darwin
+          path: release-assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#server/v}
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --latest=false \
+            --title "ScanOCR Server $version"

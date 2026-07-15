@@ -1,0 +1,102 @@
+name: Client
+
+on:
+  push:
+    branches: [master]
+    tags: ["client/v*"]
+    paths:
+      - "client/**"
+      - ".github/workflows/client.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - ".github/workflows/client.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+
+      - name: Test
+        run: client/scripts/test.sh
+
+      - name: Select build version
+        run: |
+          version=$(client/scripts/version.sh)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            tag_version=${GITHUB_REF_NAME#client/v}
+            if [ "$tag_version" != "$version" ]; then
+              echo "tag version $tag_version does not match client build version $version" >&2
+              exit 1
+            fi
+          fi
+          echo "SCANOCR_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build binary bundles
+        run: |
+          cd client
+          mkdir -p dist .release
+          for target in amd64:x86_64 arm64:aarch64; do
+            goarch=${target%%:*}
+            arch=${target#*:}
+            name=scanocr-client-$SCANOCR_VERSION-$arch-linux
+            stage=$PWD/.release/$name
+            mkdir -p "$stage"
+            GOOS=linux GOARCH=$goarch CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-X main.clientVersion=$SCANOCR_VERSION" \
+                -o "$stage/scanocr-client" .
+            tar -czf "dist/$name.tar.gz" -C "$stage" scanocr-client
+            (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          done
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: scanocr-client-linux
+          path: |
+            client/dist/*.tar.gz
+            client/dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/client/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: scanocr-client-linux
+          path: release-assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#client/v}
+          gh release create "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --generate-notes \
+            --latest=false \
+            --title "ScanOCR Client $version"

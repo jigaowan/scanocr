@@ -6,4 +6,5 @@ mkdir -p "$ROOT/.build"
 cd "$ROOT"
 CGO_ENABLED=${CGO_ENABLED:-0}
 export CGO_ENABLED
-exec go build -trimpath -o "$ROOT/.build/scanocr-client" .
+VERSION=${SCANOCR_VERSION:-$("$ROOT/scripts/version.sh")}
+exec go build -trimpath -ldflags "-X main.clientVersion=$VERSION" -o "$ROOT/.build/scanocr-client" .

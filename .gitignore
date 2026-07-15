@@ -2,6 +2,7 @@
 /docs/
 /example/
 .build/
+build/
 .release/
 .release-venv/
 .pyinstaller/

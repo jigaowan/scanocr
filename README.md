@@ -20,6 +20,7 @@ mkdir -p ~/.config/scanocr
 cp server/config.example.toml ~/.config/scanocr/server.toml
 # Edit auth.token and defaults.target_language.
 server/.venv/bin/scanocr-server --config ~/.config/scanocr/server.toml doctor
+server/.venv/bin/scanocr-server --version
 server/.venv/bin/scanocr-server --config ~/.config/scanocr/server.toml serve
 ```
 
@@ -55,6 +56,7 @@ cp client/config.example.toml ~/.config/scanocr/client.toml
 chmod 600 ~/.config/scanocr/client.toml
 # Edit server_url, token, and client_name.
 client/.build/scanocr-client doctor
+client/.build/scanocr-client --version
 client/.build/scanocr-client capture active
 client/.build/scanocr-client capture area
 ```
@@ -74,9 +76,15 @@ Run the client tests with:
 nix shell nixpkgs#go --command client/scripts/test.sh
 ```
 
-## Binary release
+## Binary releases
 
-GitHub Actions builds the Apple Silicon binary bundle on a native `macos-26` runner. Tagged builds publish these two release assets:
+A `client/v<version>` tag defines the client release version and publishes these Linux release assets:
+
+- `scanocr-client-<version>-x86_64-linux.tar.gz`
+- `scanocr-client-<version>-aarch64-linux.tar.gz`
+- a `.sha256` file for each archive
+
+A `server/v<version>` tag defines the server release version, builds the Apple Silicon binary bundle on a native `macos-26` runner and publishes these assets:
 
 - `scanocr-server-<version>-aarch64-darwin.tar.gz`
 - `scanocr-server-<version>-aarch64-darwin.tar.gz.sha256`
@@ -89,3 +97,5 @@ libexec/scanocr-native-helper
 ```
 
 Run `server/scripts/build-binary.sh` to produce the same archive under `server/dist/`. Building requires Xcode; running the archive does not.
+
+Builds without a component release tag use the Git commit date and abbreviated commit ID. Client development versions use `0.0.0-dev.<date>+g<commit>`; server development versions use the PEP 440 form `0.0.0.dev<date>+g<commit>`. A dirty worktree adds `.dirty`.

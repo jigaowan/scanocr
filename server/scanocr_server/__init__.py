@@ -1,3 +1,8 @@
 """ScanOCR macOS server."""
 
-__version__ = "0.2"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("scanocr-server")
+except PackageNotFoundError:
+    __version__ = "0.0.0.dev0+unknown"

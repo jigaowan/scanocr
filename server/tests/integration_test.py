@@ -17,6 +17,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from scanocr_server import __version__
 from scanocr_server.config import Config, ConfigError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -184,6 +185,11 @@ def main() -> int:
     assert PYTHON.is_file(), "run scripts/build.sh first"
     assert HELPER.is_file(), "native helper is not built"
     server_command = [SERVER] if SERVER else [str(PYTHON), "-m", "scanocr_server"]
+    version = subprocess.run(
+        server_command + ["--version"],
+        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30,
+    )
+    assert version.returncode == 0 and version.stdout.strip() == __version__, version.stdout
     port = free_port()
     with tempfile.TemporaryDirectory(prefix="scanocr-integration-") as directory:
         temp = Path(directory)

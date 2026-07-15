@@ -10,12 +10,17 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
+  scanocr-client --version
   scanocr-client [--config PATH] capture active|area
   scanocr-client [--config PATH] doctor
 `)
 }
 
 func run(ctx context.Context, arguments []string) error {
+	if len(arguments) == 1 && arguments[0] == "--version" {
+		fmt.Println(clientVersion)
+		return nil
+	}
 	configPath, err := defaultConfigPath()
 	if err != nil {
 		return err

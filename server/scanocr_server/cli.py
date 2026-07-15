@@ -10,6 +10,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
+from . import __version__
 from .app import create_server
 from .config import Config, ConfigError
 from .state import ServerState
@@ -17,6 +18,7 @@ from .state import ServerState
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(prog="scanocr-server")
+    result.add_argument("--version", action="version", version=__version__)
     result.add_argument("--config", type=Path, default=Path.home() / ".config" / "scanocr" / "server.toml")
     subcommands = result.add_subparsers(dest="command", required=True)
     serve = subcommands.add_parser("serve")

@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from . import __version__
 from .multipart import (
     ChunkedInput,
     LimitedInput,
@@ -81,7 +82,7 @@ def validate_metadata(value: Any) -> Dict[str, Any]:
 
 class ScanOCRHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "ScanOCR/0.2"
+    server_version = "ScanOCR/%s" % __version__
     state: ServerState
 
     def log_message(self, message: str, *args: Any) -> None:
