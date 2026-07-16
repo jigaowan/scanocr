@@ -53,13 +53,14 @@ The client is a Go binary and only supports Linux/Hyprland. Build it with an ins
 nix shell nixpkgs#go --command client/scripts/build.sh
 mkdir -p ~/.config/scanocr
 cp client/config.example.toml ~/.config/scanocr/client.toml
-chmod 600 ~/.config/scanocr/client.toml
 # Edit server_url, token, and client_name.
 client/.build/scanocr-client doctor
 client/.build/scanocr-client --version
 client/.build/scanocr-client capture active
 client/.build/scanocr-client capture area
 ```
+
+Like the service, the client accepts normal config-file permissions.
 
 At runtime, active-window capture requires `hyprctl` and `grim`; area capture additionally requires `slurp` and `hyprpicker`. `notify-send` is required when notifications are enabled. The client does not require Go after it has been built.
 

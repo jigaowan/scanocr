@@ -94,7 +94,7 @@ func TestClientVersion(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "client.toml")
 	content := "server_url = \"http://127.0.0.1:8732\"\ntoken = \"secret\"\nclient_name = \"gaming-pc\"\n"
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	config, err := loadConfig(path)
@@ -103,12 +103,6 @@ func TestLoadConfig(t *testing.T) {
 	}
 	if config.ServerURL != "http://127.0.0.1:8732" || config.Token != "secret" || !config.Notify {
 		t.Fatalf("unexpected config: %#v", config)
-	}
-	if err := os.Chmod(path, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadConfig(path); err == nil || !strings.Contains(err.Error(), "group or others") {
-		t.Fatalf("expected permission error, got %v", err)
 	}
 }
 

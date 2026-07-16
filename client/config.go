@@ -44,14 +44,6 @@ func loadConfig(path string) (Config, error) {
 	if undecoded := metadata.Undecoded(); len(undecoded) != 0 {
 		return Config{}, fmt.Errorf("unknown config key: %s", undecoded[0])
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("stat config: %w", err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		return Config{}, fmt.Errorf("config must not be accessible by group or others: %s", path)
-	}
-
 	parsed, err := url.Parse(raw.ServerURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return Config{}, fmt.Errorf("server_url must be an absolute http or https URL")
